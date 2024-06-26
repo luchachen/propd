@@ -43,7 +43,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${VAR_ZERO_INIT_FLAGS}")
 # GCC which causes it to emit lots of warnings. Since these attributes
 # don't seem to effect runtime behaviour simply disable the warnings.
 add_compile_options(-Wno-attributes)
-#add_compile_options(-fPIC)
+add_compile_options(-fPIC)
 
 # libfsmgr (required by fastboot) requires a 64-bit off_t for lseek. On
 # 32-bit glibc platforms this is not the case by default.
