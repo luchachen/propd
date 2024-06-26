@@ -1,1 +1,6 @@
 *.sw[p|o|n]
+build/
+GPATH
+GRTAGS
+GTAGS
+gtags.files
