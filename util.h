@@ -24,12 +24,10 @@
 
 #define COLDBOOT_DONE "/dev/.coldboot_done"
 
-int mtd_name_to_number(const char *name);
 int create_socket(const char *name, int type, mode_t perm,
                   uid_t uid, gid_t gid, const char *socketcon);
 char *read_file(const char *fn, unsigned *_sz);
 time_t gettime(void);
-unsigned int decode_uid(const char *s);
 
 int mkdir_recursive(const char *pathname, mode_t mode);
 void sanitize(char *p);
@@ -39,7 +37,4 @@ int wait_for_file(const char *filename, int timeout);
 void open_devnull_stdio(void);
 void get_hardware_name(char *hardware, unsigned int *revision);
 void import_kernel_cmdline(int in_qemu, void (*import_kernel_nv)(char *name, int in_qemu));
-int make_dir(const char *path, mode_t mode);
-int restorecon(const char *pathname);
-int restorecon_recursive(const char *pathname);
 #endif

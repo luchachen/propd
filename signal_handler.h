@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007 The Android Open Source Project
+ * Copyright (C) 2010 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,10 +14,11 @@
  * limitations under the License.
  */
 
-#ifndef _INIT_INIT_H
-#define _INIT_INIT_H
+#ifndef _INIT_SIGNAL_HANDLER_H_
+#define _INIT_SIGNAL_HANDLER_H_
 
-void property_changed(const char *name, const char *value);
-void handle_control_message(const char *msg, const char *arg);
+void signal_init(void);
+void handle_signal(void);
+int get_signal_fd(void);
 
-#endif	/* _INIT_INIT_H */
+#endif

@@ -23,9 +23,7 @@
 #include <errno.h>
 #include <time.h>
 #include <ftw.h>
-
-#include <selinux/label.h>
-#include <selinux/android.h>
+#include <unistd.h>
 
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -35,49 +33,9 @@
 /* for ANDROID_SOCKET_* */
 #include <cutils/sockets.h>
 
-#include <private/android_filesystem_config.h>
-
-#include "init.h"
+#include "main.h"
 #include "log.h"
 #include "util.h"
-
-/*
- * android_name_to_id - returns the integer uid/gid associated with the given
- * name, or -1U on error.
- */
-static unsigned int android_name_to_id(const char *name)
-{
-    const struct android_id_info *info = android_ids;
-    unsigned int n;
-
-    for (n = 0; n < android_id_count; n++) {
-        if (!strcmp(info[n].name, name))
-            return info[n].aid;
-    }
-
-    return -1U;
-}
-
-/*
- * decode_uid - decodes and returns the given string, which can be either the
- * numeric or name representation, into the integer uid or gid. Returns -1U on
- * error.
- */
-unsigned int decode_uid(const char *s)
-{
-    unsigned int v;
-
-    if (!s || *s == '\0')
-        return -1U;
-    if (isalpha(s[0]))
-        return android_name_to_id(s);
-
-    errno = 0;
-    v = (unsigned int) strtoul(s, 0, 0);
-    if (errno)
-        return -1U;
-    return v;
-}
 
 /*
  * create_socket - creates a Unix domain socket in ANDROID_SOCKET_DIR
@@ -90,19 +48,13 @@ int create_socket(const char *name, int type, mode_t perm, uid_t uid,
 {
     struct sockaddr_un addr;
     int fd, ret;
-    char *filecon;
 
-    if (socketcon)
-        setsockcreatecon(socketcon);
 
     fd = socket(PF_UNIX, type, 0);
     if (fd < 0) {
         ERROR("Failed to open socket '%s': %s\n", name, strerror(errno));
         return -1;
     }
-
-    if (socketcon)
-        setsockcreatecon(NULL);
 
     memset(&addr, 0 , sizeof(addr));
     addr.sun_family = AF_UNIX;
@@ -115,21 +67,11 @@ int create_socket(const char *name, int type, mode_t perm, uid_t uid,
         goto out_close;
     }
 
-    filecon = NULL;
-    if (sehandle) {
-        ret = selabel_lookup(sehandle, &filecon, addr.sun_path, S_IFSOCK);
-        if (ret == 0)
-            setfscreatecon(filecon);
-    }
-
     ret = bind(fd, (struct sockaddr *) &addr, sizeof (addr));
     if (ret) {
         ERROR("Failed to bind socket '%s': %s\n", name, strerror(errno));
         goto out_unlink;
     }
-
-    setfscreatecon(NULL);
-    freecon(filecon);
 
     chown(addr.sun_path, uid, gid);
     chmod(addr.sun_path, perm);
@@ -303,12 +245,12 @@ int mkdir_recursive(const char *pathname, mode_t mode)
         memcpy(buf, pathname, width);
         buf[width] = 0;
         if (stat(buf, &info) != 0) {
-            ret = make_dir(buf, mode);
+            ret = mkdir(buf, mode);
             if (ret && errno != EEXIST)
                 return ret;
         }
     }
-    ret = make_dir(pathname, mode);
+    ret = mkdir(pathname, mode);
     if (ret && errno != EEXIST)
         return ret;
     return 0;
@@ -342,7 +284,7 @@ void make_link(const char *oldpath, const char *newpath)
     char *slash;
     int width;
 
-    slash = strrchr(newpath, '/');
+    slash = strrchr((char *)newpath, '/');
     if (!slash)
         return;
     width = slash - newpath;
@@ -468,37 +410,4 @@ void import_kernel_cmdline(int in_qemu,
         import_kernel_nv(ptr, in_qemu);
         ptr = x;
     }
-}
-
-int make_dir(const char *path, mode_t mode)
-{
-    int rc;
-
-    char *secontext = NULL;
-
-    if (sehandle) {
-        selabel_lookup(sehandle, &secontext, path, mode);
-        setfscreatecon(secontext);
-    }
-
-    rc = mkdir(path, mode);
-
-    if (secontext) {
-        int save_errno = errno;
-        freecon(secontext);
-        setfscreatecon(NULL);
-        errno = save_errno;
-    }
-
-    return rc;
-}
-
-int restorecon(const char* pathname)
-{
-    return selinux_android_restorecon(pathname, 0);
-}
-
-int restorecon_recursive(const char* pathname)
-{
-    return selinux_android_restorecon(pathname, SELINUX_ANDROID_RESTORECON_RECURSE);
 }

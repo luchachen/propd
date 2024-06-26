@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007 The Android Open Source Project
+ * Copyright (C) 2010 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,10 +14,12 @@
  * limitations under the License.
  */
 
-#ifndef _INIT_INIT_H
-#define _INIT_INIT_H
+#ifndef _INIT_LOG_H_
+#define _INIT_LOG_H_
+#include <stdio.h>
 
-void property_changed(const char *name, const char *value);
-void handle_control_message(const char *msg, const char *arg);
+#define ERROR(x...)   printf(x)
+#define NOTICE(x...)  printf(x)
+#define INFO(x...)    printf(x)
 
-#endif	/* _INIT_INIT_H */
+#endif
