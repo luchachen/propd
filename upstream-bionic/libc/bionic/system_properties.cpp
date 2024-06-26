@@ -183,7 +183,7 @@ static int map_prop_area_rw()
      * out of, so let's do that...
      */
     const int fd = open(property_filename,
-                        O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC | O_EXCL, 0444);
+                        O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC /*| O_EXCL*/, 0444);
 
     if (fd < 0) {
         if (errno == EACCES) {
