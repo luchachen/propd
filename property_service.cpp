@@ -41,11 +41,11 @@
 #include "log.h"
 #include "property_service.h"
 #include "main.h"
-#include "persistent_properties.h"
 #include "util.h"
-using namespace propd;
 
-static bool persistent_properties_loaded = false;
+#define PERSISTENT_PROPERTY_DIR  "/data/property"
+
+static int persistent_properties_loaded = 0;
 static int property_area_inited = 0;
 
 static int property_set_fd = -1;
@@ -124,6 +124,29 @@ int __property_get(const char *name, char *value)
     return __system_property_get(name, value);
 }
 
+static void write_persistent_property(const char *name, const char *value)
+{
+    char tempPath[PATH_MAX];
+    char path[PATH_MAX];
+    int fd;
+
+    snprintf(tempPath, sizeof(tempPath), "%s/.temp.XXXXXX", PERSISTENT_PROPERTY_DIR);
+    fd = mkstemp(tempPath);
+    if (fd < 0) {
+        ERROR("Unable to write persistent property to temp file %s errno: %d\n", tempPath, errno);
+        return;
+    }
+    write(fd, value, strlen(value));
+    fsync(fd);
+    close(fd);
+
+    snprintf(path, sizeof(path), "%s/%s", PERSISTENT_PROPERTY_DIR, name);
+    if (rename(tempPath, path)) {
+        unlink(tempPath);
+        ERROR("Unable to rename persistent property file %s to %s\n", tempPath, path);
+    }
+}
+
 static bool is_legal_property_name(const char* name, size_t namelen)
 {
     size_t i;
@@ -192,7 +215,7 @@ int property_set(const char *name, const char *value)
          * Don't write properties to disk until after we have read all default properties
          * to prevent them from being overwritten by default values.
          */
-        WritePersistentProperty(name, value);
+        write_persistent_property(name, value);
     }
     property_changed(name, value);
     return 0;
@@ -373,6 +396,66 @@ static void load_properties_from_file(const char *fn, const char *filter)
     }
 }
 
+static void load_persistent_properties()
+{
+    DIR* dir = opendir(PERSISTENT_PROPERTY_DIR);
+    int dir_fd;
+    struct dirent*  entry;
+    char value[PROP_VALUE_MAX];
+    int fd, length;
+    struct stat sb;
+
+    if (dir) {
+        dir_fd = dirfd(dir);
+        while ((entry = readdir(dir)) != NULL) {
+            if (strncmp("persist.", entry->d_name, strlen("persist.")))
+                continue;
+            if (entry->d_type != DT_REG)
+                continue;
+            /* open the file and read the property value */
+            fd = openat(dir_fd, entry->d_name, O_RDONLY | O_NOFOLLOW);
+            if (fd < 0) {
+                ERROR("Unable to open persistent property file \"%s\" errno: %d\n",
+                      entry->d_name, errno);
+                continue;
+            }
+            if (fstat(fd, &sb) < 0) {
+                ERROR("fstat on property file \"%s\" failed errno: %d\n", entry->d_name, errno);
+                close(fd);
+                continue;
+            }
+
+            // File must not be accessible to others, be owned by root/root, and
+            // not be a hard link to any other file.
+            if (((sb.st_mode & (S_IRWXG | S_IRWXO)) != 0)
+                    || (sb.st_uid != 0)
+                    || (sb.st_gid != 0)
+                    || (sb.st_nlink != 1)) {
+                ERROR("skipping insecure property file %s (uid=%u gid=%u nlink=%u mode=%o)\n",
+                      entry->d_name, (unsigned int)sb.st_uid, (unsigned int)sb.st_gid,
+                      (unsigned int)sb.st_nlink, sb.st_mode);
+                close(fd);
+                continue;
+            }
+
+            length = read(fd, value, sizeof(value) - 1);
+            if (length >= 0) {
+                value[length] = 0;
+                property_set(entry->d_name, value);
+            } else {
+                ERROR("Unable to read persistent property file %s errno: %d\n",
+                      entry->d_name, errno);
+            }
+            close(fd);
+        }
+        closedir(dir);
+    } else {
+        ERROR("Unable to open persistent property directory %s errno: %d\n", PERSISTENT_PROPERTY_DIR, errno);
+    }
+
+    persistent_properties_loaded = 1;
+}
+
 void property_init(void)
 {
     init_property_area();
@@ -410,12 +493,7 @@ void load_persist_props(void)
 {
     load_override_properties();
     /* Read persistent properties after all default values have been loaded. */
-    auto persistent_properties = LoadPersistentProperties();
-    for (const auto& [name, value] : persistent_properties) {
-        property_set(name.c_str(), value.c_str());
-    }
-    persistent_properties_loaded = true;
-    property_set("ro.persistent_properties.ready", "true");
+    load_persistent_properties();
 }
 
 void load_all_props(void)
@@ -427,12 +505,7 @@ void load_all_props(void)
     load_override_properties();
 
     /* Read persistent properties after all default values have been loaded. */
-    auto persistent_properties = LoadPersistentProperties();
-    for (const auto& [name, value] : persistent_properties) {
-        property_set(name.c_str(), value.c_str());
-    }
-    persistent_properties_loaded = true;
-    property_set("ro.persistent_properties.ready", "true");
+    load_persistent_properties();
 }
 
 void start_property_service(void)

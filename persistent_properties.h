@@ -20,12 +20,23 @@
 #include <string>
 #include <vector>
 
+#include "result.h"
 
-namespace propd {
+namespace android {
+namespace init {
 
 std::vector<std::pair<std::string, std::string>> LoadPersistentProperties();
 void WritePersistentProperty(const std::string& name, const std::string& value);
 
-}  // namespace propd
+// Exposed only for testing
+Result<std::vector<std::pair<std::string, std::string>>> LoadPersistentPropertyFile();
+std::string GenerateFileContents(
+    const std::vector<std::pair<std::string, std::string>>& persistent_properties);
+Result<Success> WritePersistentPropertyFile(
+    const std::vector<std::pair<std::string, std::string>>& persistent_properties);
+extern std::string persistent_property_filename;
+
+}  // namespace init
+}  // namespace android
 
 #endif

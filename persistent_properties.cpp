@@ -16,7 +16,6 @@
 
 #include "persistent_properties.h"
 
-#include <unistd.h>
 #include <dirent.h>
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -25,32 +24,94 @@
 
 #include <memory>
 
+#include <android-base/file.h>
+#include <android-base/logging.h>
+#include <android-base/strings.h>
+#include <android-base/unique_fd.h>
+
 #include "util.h"
-#include "log.h"
 
+using android::base::ReadFdToString;
+using android::base::StartsWith;
+using android::base::WriteStringToFd;
+using android::base::unique_fd;
 
-namespace propd {
+namespace android {
+namespace init {
 
 std::string persistent_property_filename = "/data/property/persistent_properties";
 
 namespace {
 
-bool StartsWith(std::string_view s, std::string_view prefix) {
-  return s.substr(0, prefix.size()) == prefix;
+constexpr const char kLegacyPersistentPropertyDir[] = "/data/property";
+
+Result<std::vector<std::pair<std::string, std::string>>> LoadLegacyPersistentProperties() {
+    std::unique_ptr<DIR, decltype(&closedir)> dir(opendir(kLegacyPersistentPropertyDir), closedir);
+    if (!dir) {
+        return ErrnoError() << "Unable to open persistent property directory \""
+                            << kLegacyPersistentPropertyDir << "\"";
+    }
+
+    std::vector<std::pair<std::string, std::string>> persistent_properties;
+    dirent* entry;
+    while ((entry = readdir(dir.get())) != nullptr) {
+        if (!StartsWith(entry->d_name, "persist.")) {
+            continue;
+        }
+        if (entry->d_type != DT_REG) {
+            continue;
+        }
+
+        unique_fd fd(openat(dirfd(dir.get()), entry->d_name, O_RDONLY | O_NOFOLLOW));
+        if (fd == -1) {
+            PLOG(ERROR) << "Unable to open persistent property file \"" << entry->d_name << "\"";
+            continue;
+        }
+
+        struct stat sb;
+        if (fstat(fd, &sb) == -1) {
+            PLOG(ERROR) << "fstat on property file \"" << entry->d_name << "\" failed";
+            continue;
+        }
+
+        // File must not be accessible to others, be owned by root/root, and
+        // not be a hard link to any other file.
+        if (((sb.st_mode & (S_IRWXG | S_IRWXO)) != 0) || sb.st_uid != 0 || sb.st_gid != 0 ||
+            sb.st_nlink != 1) {
+            PLOG(ERROR) << "skipping insecure property file " << entry->d_name
+                        << " (uid=" << sb.st_uid << " gid=" << sb.st_gid << " nlink=" << sb.st_nlink
+                        << " mode=" << std::oct << sb.st_mode << ")";
+            continue;
+        }
+
+        std::string value;
+        if (ReadFdToString(fd, &value)) {
+            persistent_properties.emplace_back(entry->d_name, value);
+        } else {
+            PLOG(ERROR) << "Unable to read persistent property file " << entry->d_name;
+        }
+    }
+    return persistent_properties;
 }
 
-bool WriteStringToFd(std::string_view content, int fd) {
-  const char* p = content.data();
-  size_t left = content.size();
-  while (left > 0) {
-    ssize_t n = TEMP_FAILURE_RETRY(write(fd, p, left));
-    if (n == -1) {
-      return false;
+void RemoveLegacyPersistentPropertyFiles() {
+    std::unique_ptr<DIR, decltype(&closedir)> dir(opendir(kLegacyPersistentPropertyDir), closedir);
+    if (!dir) {
+        PLOG(ERROR) << "Unable to open persistent property directory \""
+                    << kLegacyPersistentPropertyDir << "\"";
+        return;
     }
-    p += n;
-    left -= n;
-  }
-  return true;
+
+    dirent* entry;
+    while ((entry = readdir(dir.get())) != nullptr) {
+        if (!StartsWith(entry->d_name, "persist.")) {
+            continue;
+        }
+        if (entry->d_type != DT_REG) {
+            continue;
+        }
+        unlinkat(dirfd(dir.get()), entry->d_name, 0);
+    }
 }
 
 std::vector<std::pair<std::string, std::string>> LoadPersistentPropertiesFromMemory() {
@@ -211,7 +272,7 @@ Result<Success> WritePersistentPropertyFile(
     auto file_contents = GenerateFileContents(persistent_properties);
 
     const std::string temp_filename = persistent_property_filename + ".tmp";
-    int fd(TEMP_FAILURE_RETRY(
+    unique_fd fd(TEMP_FAILURE_RETRY(
         open(temp_filename.c_str(), O_WRONLY | O_CREAT | O_NOFOLLOW | O_TRUNC | O_CLOEXEC, 0600)));
     if (fd == -1) {
         return ErrnoError() << "Could not open temporary properties file";
@@ -220,7 +281,7 @@ Result<Success> WritePersistentPropertyFile(
         return ErrnoError() << "Unable to write file contents";
     }
     fsync(fd);
-    close(fd);
+    fd.reset();
 
     if (rename(temp_filename.c_str(), persistent_property_filename.c_str())) {
         int saved_errno = errno;
@@ -256,10 +317,24 @@ std::vector<std::pair<std::string, std::string>> LoadPersistentProperties() {
     auto persistent_properties = LoadPersistentPropertyFile();
 
     if (!persistent_properties) {
-        ERROR("Could not load single persistent property file");
+        LOG(ERROR) << "Could not load single persistent property file, trying legacy directory: "
+                   << persistent_properties.error();
+        persistent_properties = LoadLegacyPersistentProperties();
+        if (!persistent_properties) {
+            LOG(ERROR) << "Unable to load legacy persistent properties: "
+                       << persistent_properties.error();
+            return {};
+        }
+        if (auto result = WritePersistentPropertyFile(*persistent_properties); result) {
+            RemoveLegacyPersistentPropertyFiles();
+        } else {
+            LOG(ERROR) << "Unable to write single persistent property file: " << result.error();
+            // Fall through so that we still set the properties that we've read.
+        }
     }
 
     return *persistent_properties;
 }
 
-}  // namespace propd
+}  // namespace init
+}  // namespace android
