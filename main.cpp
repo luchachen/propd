@@ -193,6 +193,8 @@ int main(int argc, char **argv)
 
     INFO("property init\n");
     property_load_boot_defaults();
+
+    load_all_props();
     property_service_init_action();
     signal_init_action();
 

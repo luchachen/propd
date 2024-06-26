@@ -55,7 +55,7 @@
 #include "private/bionic_futex.h"
 #include "private/bionic_macros.h"
 
-static const char property_service_socket[] = "/dev/socket/" PROP_SERVICE_NAME;
+static const char property_service_socket[] = "/run/" PROP_SERVICE_NAME;
 
 
 /*
@@ -154,6 +154,13 @@ static size_t pa_size;
 // NOTE: This isn't static because system_properties_compat.c
 // requires it.
 prop_area *__system_property_area__ = NULL;
+extern "C" char** environ;
+__attribute__((constructor)) static void __libsysprop_preinit() {
+  //after environ
+  if (environ) {
+      __system_properties_init();
+  }
+}
 
 static int get_fd_from_env(void)
 {

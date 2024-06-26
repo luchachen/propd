@@ -48,8 +48,11 @@ __attribute__ ((artificial))
 int property_get(const char *name, char *value)
 {
     size_t value_len = __builtin_object_size(value, 0);
+//TODO
+#if 0
     if (value_len != PROP_VALUE_MAX)
         __property_get_size_error();
+#endif
 
     return __property_get(name, value);
 }

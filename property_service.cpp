@@ -43,7 +43,7 @@
 #include "main.h"
 #include "util.h"
 
-#define PERSISTENT_PROPERTY_DIR  "/data/property"
+#define PERSISTENT_PROPERTY_DIR  "/var/lib/property"
 
 static int persistent_properties_loaded = 0;
 static int property_area_inited = 0;
