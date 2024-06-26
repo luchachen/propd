@@ -1,0 +1,90 @@
+set(cutils_SOURCES
+    libcutils/properties.c
+    libcutils/load_file.c
+   )
+
+add_library(cutils SHARED ${cutils_SOURCES})
+target_compile_definitions(cutils PRIVATE -D_GNU_SOURCE -D__BIONIC__)
+target_compile_definitions(cutils PUBLIC -DPROP_HOST=1)
+target_include_directories(cutils PRIVATE
+    upstream-bionic/libc/private/
+	upstream-bionic/libc/include)
+
+target_include_directories(cutils PUBLIC
+    libcutils/include)
+
+configure_file(upstream-bionic/libc/private/bionic_cdefs.h bionic_cdefs.h @ONLY)
+set(BIONIC_HEADER ${CMAKE_CURRENT_BINARY_DIR}/bionic_cdefs.h)
+#bionic/tests/property_benchmark.cpp
+#upstream-bionic/tests/system_properties_test.cpp
+set(systemproperties_SOURCES
+    upstream-bionic/libc/upstream-openbsd/lib/libc/string/strlcpy.c
+    upstream-bionic/libc/bionic/system_properties.cpp
+    upstream-bionic/libc/bionic/system_properties_compat.c
+    )
+
+add_library(systemproperties SHARED ${systemproperties_SOURCES})
+target_compile_options(systemproperties PRIVATE -include ${BIONIC_HEADER})
+target_compile_definitions(systemproperties PRIVATE -D_GNU_SOURCE
+    -D__BIONIC__ -DANDROID_SMP -DPATH_MAX=4096
+)
+target_compile_definitions(systemproperties PUBLIC -DPROP_HOST=1)
+target_include_directories(systemproperties PRIVATE
+    upstream-bionic/libc/private
+    upstream-bionic/libc/
+	upstream-bionic/libc/include)
+
+target_include_directories(systemproperties PUBLIC
+	upstream-bionic/libc/include)
+
+target_link_libraries(systemproperties PUBLIC)
+
+
+#persistent_properties.cpp
+add_executable(propd
+    signal_handler.cpp
+    main.cpp
+    property_service.cpp
+    util.cpp
+	)
+
+target_compile_definitions(propd PRIVATE -D_GNU_SOURCE -D__BIONIC__)
+target_compile_definitions(propd PUBLIC -DPROP_HOST=1 -DALLOW_LOCAL_PROP_OVERRIDE=1)
+
+target_link_libraries(propd PRIVATE
+	cutils
+	systemproperties)
+
+add_executable(toolbox
+	toolbox/dynarray.c
+	toolbox/toolbox.c
+	toolbox/setprop.c
+	toolbox/getprop.c)
+
+target_compile_definitions(toolbox PRIVATE -D_GNU_SOURCE)
+
+target_link_libraries(toolbox
+	cutils
+	systemproperties)
+
+add_custom_command(
+	TARGET toolbox POST_BUILD
+	COMMAND ${CMAKE_COMMAND} -E create_symlink toolbox getprop
+	COMMAND ${CMAKE_COMMAND} -E create_symlink toolbox setprop
+	COMMENT "Creating setprop and getprop symlink to the executable toolbox"
+	VERBATIM)
+
+add_custom_command(
+	OUTPUT getprop
+	COMMAND ${CMAKE_COMMAND} -E create_symlink toolbox getprop
+	COMMENT "Creating getprop symlink to the executable"
+)
+
+add_custom_command(
+	OUTPUT setprop
+	COMMAND ${CMAKE_COMMAND} -E create_symlink toolbox setprop
+	COMMENT "Creating setprop symlink to the executable"
+)
+
+add_custom_target(setprop ALL DEPENDS toolbox)
+add_custom_target(getprop ALL DEPENDS toolbox)
